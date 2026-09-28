@@ -72,6 +72,15 @@ def enableProguardInReleaseBuilds = false
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
+// react-native-dotenv only injects vars into the JS bundle — the native
+// Android manifest needs its own read of the same root .env file to get
+// GOOGLE_MAPS_API_KEY into the Maps SDK meta-data tag below.
+def envFile = rootProject.file("../.env")
+def envProps = new Properties()
+if (envFile.exists()) {
+    envFile.withInputStream { envProps.load(it) }
+}
+
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
@@ -84,6 +93,7 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+        manifestPlaceholders = [GOOGLE_MAPS_API_KEY: envProps.getProperty("GOOGLE_MAPS_API_KEY", "")]
     }
     signingConfigs {
         debug {

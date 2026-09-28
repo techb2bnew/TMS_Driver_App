@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import ScreenContainer from '../../components/ScreenContainer';
 import ScreenHeader from '../../components/ScreenHeader';
@@ -23,7 +23,8 @@ import {
   warnColor,
   warnSoft,
 } from '../../constant/Color';
-import { addMockExpense, mockExpenses } from '../../mock/expenses';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../context/AuthContext';
 import type { Expense, ExpenseStatus } from '../../types';
 import { formatCurrency, formatDate } from '../../utils/format';
 import { ExpensesText } from '../../constant/Constants';
@@ -68,10 +69,29 @@ function ExpenseRow({ item }: { item: Expense }) {
 }
 
 export default function ExpensesScreen() {
-  const [expenses, setExpenses] = useState<Expense[]>(mockExpenses);
+  const { driver } = useAuth();
+  const [expenses, setExpenses] = useState<Expense[]>([]);
   const [filter, setFilter] = useState<ExpenseStatus | 'all'>('all');
   const [showAddSheet, setShowAddSheet] = useState(false);
   const [successVisible, setSuccessVisible] = useState(false);
+
+  useEffect(() => {
+    if (!driver) return;
+    let mounted = true;
+
+    supabase
+      .from('expenses')
+      .select('id, category, amount, load_id, notes, status, created_at')
+      .eq('created_by', driver.id)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        if (mounted) setExpenses(data ?? []);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [driver]);
 
   const totalThisMonth = expenses.reduce((sum, e) => sum + e.amount, 0);
 
@@ -80,15 +100,17 @@ export default function ExpensesScreen() {
     [expenses, filter],
   );
 
-  function handleAddExpense(input: Omit<Expense, 'id' | 'created_at' | 'status'>) {
-    const expense: Expense = {
-      id: `EX-${Date.now()}`,
-      created_at: new Date().toISOString(),
-      status: 'pending',
-      ...input,
-    };
-    addMockExpense(expense);
-    setExpenses(prev => [expense, ...prev]);
+  async function handleAddExpense(input: Omit<Expense, 'id' | 'created_at' | 'status'>) {
+    if (!driver) return;
+    const { data, error } = await supabase
+      .from('expenses')
+      .insert({ category: input.category, amount: input.amount, notes: input.notes, load_id: input.load_id, created_by: driver.id })
+      .select('id, category, amount, load_id, notes, status, created_at')
+      .single();
+
+    if (error || !data) throw error ?? new Error('Insert failed');
+
+    setExpenses(prev => [data, ...prev]);
     setSuccessVisible(true);
   }
 

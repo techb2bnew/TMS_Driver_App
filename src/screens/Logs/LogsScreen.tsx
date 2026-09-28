@@ -5,6 +5,7 @@ import ScreenContainer from '../../components/ScreenContainer';
 import Card from '../../components/Card';
 import Icon from '../../components/Icon';
 import AlertModal from '../../components/AlertModal';
+import EmptyState from '../../components/EmptyState';
 import { BaseStyle } from '../../constant/Style';
 import { spacings, style } from '../../constant/Fonts';
 import { accentColor, borderColor, textDark, textMuted } from '../../constant/Color';
@@ -67,13 +68,17 @@ function renderSeparator() {
 export default function LogsScreen({ navigation }: Props) {
   const { status, log, setStatus } = useDutyStatus();
   const [restriction, setRestriction] = useState<{ minutes: number; km: number } | null>(null);
+  const [saveError, setSaveError] = useState('');
 
-  function handleStatusPress(next: DutyStatus) {
+  async function handleStatusPress(next: DutyStatus) {
     try {
-      setStatus(next);
+      await setStatus(next);
     } catch (e) {
       if (e instanceof DutyStatusRestrictedError) {
         setRestriction({ minutes: e.remainingMinutes, km: e.remainingKm });
+      } else {
+        const message = e instanceof Error && e.message ? e.message : LogsText.saveErrorMessage;
+        setSaveError(message);
       }
     }
   }
@@ -100,15 +105,21 @@ export default function LogsScreen({ navigation }: Props) {
         </TouchableOpacity>
       </View>
 
-      <Card style={styles.logCard}>
-        <FlatList
-          data={log}
-          keyExtractor={item => item.id}
-          renderItem={({ item }) => <LogRow entry={item} />}
-          ItemSeparatorComponent={renderSeparator}
-          scrollEnabled={false}
-        />
-      </Card>
+      {log.length === 0 ? (
+        <Card style={styles.logCard}>
+          <EmptyState icon="clock-outline" title={LogsText.emptyTitle} subtitle={LogsText.emptySubtitle} />
+        </Card>
+      ) : (
+        <Card style={styles.logCard}>
+          <FlatList
+            data={log}
+            keyExtractor={item => item.id}
+            renderItem={({ item }) => <LogRow entry={item} />}
+            ItemSeparatorComponent={renderSeparator}
+            scrollEnabled={false}
+          />
+        </Card>
+      )}
 
       <AlertModal
         visible={restriction !== null}
@@ -118,6 +129,16 @@ export default function LogsScreen({ navigation }: Props) {
         message={restriction ? LogsText.breakRestrictedMessage(restriction.minutes, restriction.km) : ''}
         confirmLabel={LogsText.breakRestrictedConfirm}
         onConfirm={() => setRestriction(null)}
+      />
+
+      <AlertModal
+        visible={Boolean(saveError)}
+        onClose={() => setSaveError('')}
+        tone="error"
+        title={LogsText.saveErrorTitle}
+        message={saveError}
+        confirmLabel={LogsText.breakRestrictedConfirm}
+        onConfirm={() => setSaveError('')}
       />
     </ScreenContainer>
   );

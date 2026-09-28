@@ -29,7 +29,6 @@ export const ProfileText = {
   licenseLabel: 'License',
   phoneLabel: 'Phone',
   truckLabel: 'Truck',
-  truckUnassigned: 'Not assigned',
   earnings: 'Earnings & Settlements',
   expenses: 'Expenses',
   settings: 'Settings',
@@ -110,13 +109,14 @@ export const LoadsText = {
 export const RouteMapText = {
   title: 'Route',
   remaining: 'Remaining',
-  eta: 'ETA',
   total: 'Total',
   tripCompleteSuffix: '% of the trip completed',
-  navigateToPrefix: 'Navigate to ',
   stops: 'Stops',
   addStop: '+ Add Stop',
   viewLoadDetails: 'View Load Details',
+  noRouteTitle: 'Route not available yet',
+  noRouteSubtitle: 'Dispatch hasn\'t shared a planned route for this load — check back later or contact dispatch.',
+  noCoordinatesNote: "This load's pickup/drop haven't been mapped yet — showing your current location for now.",
 };
 
 export const AddStopText = {
@@ -133,6 +133,7 @@ export const AddStopText = {
   notesLabel: 'Notes (optional)',
   notesPlaceholder: 'e.g. Quick fuel + break',
   addressRequired: 'Enter a location',
+  suggestionsHeader: 'Places on this route',
   submit: 'Add Stop',
 };
 
@@ -149,6 +150,7 @@ export const LogHistoryText = {
   title: 'Duty History',
   subtitle: 'Last 7 days',
   hoursSuffix: 'h',
+  noData: 'No activity logged this day',
 };
 
 export const LogsText = {
@@ -156,10 +158,20 @@ export const LogsText = {
   subtitle: 'Tap a status to log the change',
   todaysLog: "Today's log",
   history: 'History →',
+  emptyTitle: 'No status logged today',
+  emptySubtitle: 'Tap a status above to log your first change',
   breakRestrictedTitle: 'Break not available yet',
   breakRestrictedMessage: (minutes, km) =>
     `You need to drive a bit longer on this trip before taking a break — at least ${minutes} more minute(s) or ${km} more km, whichever comes later.`,
   breakRestrictedConfirm: 'Got it',
+  saveErrorTitle: "Couldn't save",
+  saveErrorMessage: "Couldn't save your duty status. Check your connection and try again.",
+};
+
+export const DutyGuardText = {
+  title: 'Update your duty status first',
+  message: "You're marked Off Duty or Sleeper. Switch to Driving or On Duty before updating a load, adding an expense, or adding a stop.",
+  confirmLabel: 'Got it',
 };
 
 export const ContactSupportText = {
@@ -226,6 +238,7 @@ export const ExpensesText = {
     notesLabel: 'Notes (optional)',
     notesPlaceholder: 'e.g. Full tank before trip',
     amountRequired: 'Enter a valid amount',
+    submitError: "Couldn't submit your expense. Check your connection and try again.",
     submit: 'Submit Expense',
     successTitle: 'Expense submitted',
     successMessage: "Your expense has been sent to your fleet admin for approval.",
@@ -294,5 +307,10 @@ export const StatusUpdateSheetText = {
   tapToCapture: 'Tap to capture photo',
   retake: 'Retake',
   cameraError: "Couldn't open the camera. Check camera permission in Settings and try again.",
+  cameraPermissionTitle: 'Camera permission',
+  cameraPermissionMessage: 'TMS Driver needs camera access to capture proof of delivery photos.',
+  cameraPermissionAllow: 'Allow',
+  cameraPermissionDenied: 'Camera permission was denied. Enable it in Settings to capture a photo.',
+  openSettings: 'Open Settings',
   cancelLabel: 'Cancel',
 };

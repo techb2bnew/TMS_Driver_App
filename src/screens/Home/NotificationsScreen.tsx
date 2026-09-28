@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import ScreenContainer from '../../components/ScreenContainer';
 import ScreenHeader from '../../components/ScreenHeader';
@@ -7,8 +7,7 @@ import EmptyState from '../../components/EmptyState';
 import { BaseStyle } from '../../constant/Style';
 import { spacings, style } from '../../constant/Fonts';
 import { accentColor, accentSoft, borderColor, cardBg, okColor, okSoft, textDark, textFaint, textMuted, warnColor, warnSoft } from '../../constant/Color';
-import { mockNotifications as initialNotifications } from '../../mock/notifications';
-import type { NotificationItem } from '../../types';
+import { useNotifications } from '../../context/NotificationsContext';
 import { formatDate, formatTime } from '../../utils/format';
 import { NotificationsText } from '../../constant/Constants';
 
@@ -19,16 +18,7 @@ function iconFor(title: string): { name: string; color: string; bg: string } {
 }
 
 export default function NotificationsScreen() {
-  const [notifications, setNotifications] = useState<NotificationItem[]>(initialNotifications);
-  const unreadCount = notifications.filter(n => !n.is_read).length;
-
-  function markAllRead() {
-    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-  }
-
-  function markRead(id: string) {
-    setNotifications(prev => prev.map(n => (n.id === id ? { ...n, is_read: true } : n)));
-  }
+  const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
 
   return (
     <ScreenContainer>

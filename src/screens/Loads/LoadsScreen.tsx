@@ -37,7 +37,7 @@ function LoadCard({ load, onPress }: { load: Load; onPress: () => void }) {
         <View style={[BaseStyle.flexDirectionRow, BaseStyle.alignItemsCenter, BaseStyle.justifyContentSpaceBetween, styles.cardTop]}>
           <View style={[BaseStyle.flexDirectionRow, BaseStyle.alignItemsCenter]}>
             <IconCircle name="package-variant-closed" color={meta.color} backgroundColor={`${meta.color}1A`} size={38} iconSize={18} />
-            <Text style={[style.fontSizeNormal2x, style.fontWeightMedium, styles.loadId, { color: textDark }]}>{load.id}</Text>
+            <Text style={[style.fontSizeNormal2x, style.fontWeightMedium, styles.loadId, { color: textDark }]}>{load.load_number}</Text>
           </View>
           <StatusBadge label={meta.label} color={meta.color} />
         </View>

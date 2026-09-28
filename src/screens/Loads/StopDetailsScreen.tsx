@@ -10,7 +10,6 @@ import CustomButton from '../../components/CustomButton';
 import { BaseStyle } from '../../constant/Style';
 import { spacings, style } from '../../constant/Fonts';
 import { accentColor, accentSoft, cardBgSoft, okColor, okSoft, textDark, textFaint, textMuted } from '../../constant/Color';
-import { mockRoutes } from '../../mock/routes';
 import type { LoadFlowParamList } from '../../navigation/types';
 import { formatTime } from '../../utils/format';
 import { safeOpenURL } from '../../utils/linking';
@@ -35,23 +34,19 @@ function DetailRow({ icon, label, value }: { icon: string; label: string; value:
 }
 
 export default function StopDetailsScreen({ route }: Props) {
-  const { loadId, stopId } = route.params;
-  const routeInfo = mockRoutes[loadId];
-  const stop = routeInfo?.stops.find(s => s.id === stopId);
-
-  if (!stop) return null;
+  const { stop } = route.params;
 
   function openMaps() {
-    const label = encodeURIComponent(stop!.address);
+    const label = encodeURIComponent(stop.address);
     const url = Platform.select({
-      ios: `maps:0,0?q=${label}@${stop!.lat},${stop!.lng}`,
-      android: `geo:0,0?q=${stop!.lat},${stop!.lng}(${label})`,
+      ios: `maps:0,0?q=${label}@${stop.lat},${stop.lng}`,
+      android: `geo:0,0?q=${stop.lat},${stop.lng}(${label})`,
     });
     if (url) safeOpenURL(url);
   }
 
   function callContact() {
-    if (stop?.contactPhone) safeOpenURL(`tel:${stop.contactPhone.replace(/\s/g, '')}`);
+    if (stop.contactPhone) safeOpenURL(`tel:${stop.contactPhone.replace(/\s/g, '')}`);
   }
 
   const completed = stop.status === 'completed';

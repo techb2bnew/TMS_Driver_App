@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import ScreenContainer from '../../components/ScreenContainer';
 import ScreenHeader from '../../components/ScreenHeader';
@@ -10,8 +10,9 @@ import EmptyState from '../../components/EmptyState';
 import { BaseStyle } from '../../constant/Style';
 import { spacings, style } from '../../constant/Fonts';
 import { accentColor, accentSoft, okColor, okSoft, textDark, textMuted, warnColor, warnSoft } from '../../constant/Color';
-import { mockSettlements } from '../../mock/settlements';
-import type { Settlement, SettlementStatus } from '../../types';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../context/AuthContext';
+import type { SettlementStatus } from '../../types';
 import { formatCurrency, formatDate } from '../../utils/format';
 import { EarningsText } from '../../constant/Constants';
 
@@ -21,7 +22,15 @@ const FILTERS: { key: SettlementStatus | 'all'; label: string }[] = [
   { key: 'unpaid', label: EarningsText.filters.unpaid },
 ];
 
-function SettlementRow({ item }: { item: Settlement }) {
+type SettlementRowData = {
+  id: string;
+  amount: number;
+  status: SettlementStatus;
+  created_at: string;
+  load_number: string;
+};
+
+function SettlementRow({ item }: { item: SettlementRowData }) {
   const paid = item.status === 'paid';
   return (
     <Card style={styles.row}>
@@ -35,7 +44,7 @@ function SettlementRow({ item }: { item: Settlement }) {
             iconSize={19}
           />
           <View style={styles.rowText}>
-            <Text style={[style.fontSizeNormal1x, style.fontWeightMedium, { color: textDark }]}>{item.load_id}</Text>
+            <Text style={[style.fontSizeNormal1x, style.fontWeightMedium, { color: textDark }]}>{item.load_number}</Text>
             <Text style={[style.fontSizeSmall1x, { color: textMuted }]}>{formatDate(item.created_at)}</Text>
           </View>
         </View>
@@ -49,14 +58,42 @@ function SettlementRow({ item }: { item: Settlement }) {
 }
 
 export default function EarningsScreen() {
+  const { driver } = useAuth();
   const [filter, setFilter] = useState<SettlementStatus | 'all'>('all');
+  const [settlements, setSettlements] = useState<SettlementRowData[]>([]);
 
-  const totalPaid = mockSettlements.filter(s => s.status === 'paid').reduce((sum, s) => sum + s.amount, 0);
-  const totalPending = mockSettlements.filter(s => s.status === 'unpaid').reduce((sum, s) => sum + s.amount, 0);
+  useEffect(() => {
+    if (!driver) return;
+    let mounted = true;
+
+    supabase
+      .from('settlements')
+      .select('id, amount, status, created_at, loads(load_number)')
+      .eq('driver_id', driver.id)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        if (!mounted) return;
+        const rows = (data ?? []) as unknown as Array<{
+          id: string;
+          amount: number;
+          status: SettlementStatus;
+          created_at: string;
+          loads: { load_number: string } | null;
+        }>;
+        setSettlements(rows.map(r => ({ id: r.id, amount: r.amount, status: r.status, created_at: r.created_at, load_number: r.loads?.load_number ?? '—' })));
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [driver]);
+
+  const totalPaid = settlements.filter(s => s.status === 'paid').reduce((sum, s) => sum + s.amount, 0);
+  const totalPending = settlements.filter(s => s.status === 'unpaid').reduce((sum, s) => sum + s.amount, 0);
 
   const filtered = useMemo(
-    () => (filter === 'all' ? mockSettlements : mockSettlements.filter(s => s.status === filter)),
-    [filter],
+    () => (filter === 'all' ? settlements : settlements.filter(s => s.status === filter)),
+    [filter, settlements],
   );
 
   return (

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import ScreenContainer from '../../components/ScreenContainer';
@@ -23,8 +23,11 @@ import {
   warnColor,
 } from '../../constant/Color';
 import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../lib/supabase';
 import { APP_NAME, APP_VERSION, ProfileText } from '../../constant/Constants';
 import type { ProfileStackParamList } from '../../navigation/types';
+
+const ACTIVE_LOAD_STATUSES = ['assigned', 'picked_up', 'in_transit'];
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'ProfileMain'>;
 
@@ -56,6 +59,30 @@ export default function ProfileScreen({ navigation }: Props) {
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
   const [deleteSuccessVisible, setDeleteSuccessVisible] = useState(false);
   const [logoutConfirmVisible, setLogoutConfirmVisible] = useState(false);
+  const [truckNumber, setTruckNumber] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!driver) return;
+    let mounted = true;
+
+    // No permanent driver↔truck link exists — the "current truck" is
+    // whichever truck is on this driver's active load right now.
+    supabase
+      .from('loads')
+      .select('assigned_truck_id, trucks(truck_number)')
+      .eq('assigned_driver_id', driver.id)
+      .in('status', ACTIVE_LOAD_STATUSES)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        const rows = (data ?? []) as unknown as Array<{ trucks: { truck_number: string } | null }>;
+        const truck = rows.find(r => r.trucks)?.trucks;
+        if (mounted) setTruckNumber(truck?.truck_number ?? null);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [driver]);
 
   if (!driver) return null;
 
@@ -95,20 +122,22 @@ export default function ProfileScreen({ navigation }: Props) {
               <Text style={[style.fontSizeNormal1x, style.fontWeightMedium, styles.infoValue]}>{driver.license_number}</Text>
             </View>
           </View>
-          <View style={[BaseStyle.flexDirectionRow, BaseStyle.alignItemsCenter, styles.infoRow]}>
+          <View style={[BaseStyle.flexDirectionRow, BaseStyle.alignItemsCenter, truckNumber ? styles.infoRow : styles.infoRowLast]}>
             <IconCircle name="phone-outline" color={accentColor} backgroundColor={accentSoft} size={36} iconSize={18} />
             <View style={styles.infoTextWrap}>
               <Text style={[style.fontSizeSmall1x, styles.infoLabel]}>{ProfileText.phoneLabel}</Text>
               <Text style={[style.fontSizeNormal1x, style.fontWeightMedium, styles.infoValue]}>{driver.phone}</Text>
             </View>
           </View>
-          <View style={[BaseStyle.flexDirectionRow, BaseStyle.alignItemsCenter, styles.infoRowLast]}>
-            <IconCircle name="truck-outline" color={accentColor} backgroundColor={accentSoft} size={36} iconSize={18} />
-            <View style={styles.infoTextWrap}>
-              <Text style={[style.fontSizeSmall1x, styles.infoLabel]}>{ProfileText.truckLabel}</Text>
-              <Text style={[style.fontSizeNormal1x, style.fontWeightMedium, styles.infoValue]}>{driver.truck_number ?? ProfileText.truckUnassigned}</Text>
+          {truckNumber && (
+            <View style={[BaseStyle.flexDirectionRow, BaseStyle.alignItemsCenter, styles.infoRowLast]}>
+              <IconCircle name="truck-outline" color={accentColor} backgroundColor={accentSoft} size={36} iconSize={18} />
+              <View style={styles.infoTextWrap}>
+                <Text style={[style.fontSizeSmall1x, styles.infoLabel]}>{ProfileText.truckLabel}</Text>
+                <Text style={[style.fontSizeNormal1x, style.fontWeightMedium, styles.infoValue]}>{truckNumber}</Text>
+              </View>
             </View>
-          </View>
+          )}
         </Card>
 
         <SectionLabel label={ProfileText.accountSection} />

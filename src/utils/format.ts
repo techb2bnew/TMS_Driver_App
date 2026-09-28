@@ -3,9 +3,11 @@ export function formatCurrency(amount: number) {
 }
 
 export function formatDate(iso: string) {
+  if (!iso) return '—';
   return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }
 
 export function formatTime(iso: string) {
+  if (!iso) return '—';
   return new Date(iso).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
 }

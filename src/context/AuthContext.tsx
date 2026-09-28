@@ -1,12 +1,12 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
-import { mockDriver } from '../mock/driver';
-import { MOCK_DRIVER_CREDENTIALS } from '../constant/auth';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { supabase } from '../lib/supabase';
 import type { Driver } from '../types';
 
 export class InvalidCredentialsError extends Error {}
 
 type AuthContextValue = {
   isAuthenticated: boolean;
+  isLoading: boolean;
   driver: Driver | null;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
@@ -15,35 +15,101 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-// Mock phase: no Supabase auth wired up yet, so this just simulates the
-// round trip against MOCK_DRIVER_CREDENTIALS. Swap the body of `login` for a
-// real supabase.auth call and this context needs no other changes — every
-// screen already reads through it.
+type ProfileRow = {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  email: string | null;
+  role: string;
+  drivers: { license_number: string | null; status: Driver['status'] } | null;
+};
+
+// Only a 'driver'-role profile with a matching drivers row counts as a
+// valid driver-app session — an admin/dispatcher account exists in the same
+// `profiles` table but has no business signing in here.
+async function loadDriverProfile(userId: string): Promise<Driver | null> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, full_name, phone, email, role, drivers(license_number, status)')
+    .eq('id', userId)
+    .single();
+
+  if (error || !data) return null;
+  const row = data as unknown as ProfileRow;
+  if (row.role !== 'driver') return null;
+
+  return {
+    id: row.id,
+    full_name: row.full_name,
+    phone: row.phone ?? '',
+    email: row.email ?? undefined,
+    license_number: row.drivers?.license_number ?? '',
+    status: row.drivers?.status ?? 'inactive',
+  };
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [driver, setDriver] = useState<Driver | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+
+    supabase.auth.getSession().then(async ({ data }) => {
+      const userId = data.session?.user.id;
+      const profile = userId ? await loadDriverProfile(userId) : null;
+      if (mounted) {
+        setDriver(profile);
+        setIsLoading(false);
+      }
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        if (mounted) setDriver(null);
+        return;
+      }
+      loadDriverProfile(session.user.id).then(profile => {
+        if (mounted) setDriver(profile);
+      });
+    });
+
+    return () => {
+      mounted = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       isAuthenticated: driver !== null,
+      isLoading,
       driver,
       login: async (email: string, password: string) => {
-        await new Promise<void>(resolve => setTimeout(() => resolve(), 700));
-        const matches =
-          email.trim().toLowerCase() === MOCK_DRIVER_CREDENTIALS.email.toLowerCase() &&
-          password === MOCK_DRIVER_CREDENTIALS.password;
-        if (!matches) throw new InvalidCredentialsError('Invalid email or password');
-        setDriver(mockDriver);
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: email.trim().toLowerCase(),
+          password,
+        });
+        if (error || !data.user) throw new InvalidCredentialsError(error?.message ?? 'Invalid email or password');
+
+        const profile = await loadDriverProfile(data.user.id);
+        if (!profile) {
+          await supabase.auth.signOut();
+          throw new InvalidCredentialsError('This account is not a driver account');
+        }
+        setDriver(profile);
       },
-      logout: () => setDriver(null),
-      // Submits the deletion request only — doesn't clear the session.
-      // The caller shows a success state, then calls `logout` once the user
-      // dismisses it (see ProfileScreen), so the app doesn't yank the
-      // screen out from under them mid-confirmation.
+      logout: () => {
+        supabase.auth.signOut();
+        setDriver(null);
+      },
+      // No self-serve delete endpoint yet — this only simulates submitting
+      // the request; ProfileScreen shows a success state, then logs out.
       deleteAccount: async () => {
         await new Promise<void>(resolve => setTimeout(() => resolve(), 900));
       },
     }),
-    [driver],
+    [driver, isLoading],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

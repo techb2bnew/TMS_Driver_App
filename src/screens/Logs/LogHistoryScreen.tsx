@@ -1,13 +1,15 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import ScreenContainer from '../../components/ScreenContainer';
 import ScreenHeader from '../../components/ScreenHeader';
 import Card from '../../components/Card';
 import { BaseStyle } from '../../constant/Style';
 import { spacings, style } from '../../constant/Fonts';
-import { textDark, textMuted } from '../../constant/Color';
+import { textDark, textFaint, textMuted } from '../../constant/Color';
 import { DUTY_STATUS_META, DUTY_STATUS_ORDER } from '../../constant/DutyStatus';
-import { mockDutyHistory, type DutyDaySummary } from '../../mock/dutyHistory';
+import { buildDutyHistory, type DutyDaySummary } from '../../utils/dutyHistory';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../context/AuthContext';
 import { LogHistoryText } from '../../constant/Constants';
 
 function DayCard({ day }: { day: DutyDaySummary }) {
@@ -19,34 +21,62 @@ function DayCard({ day }: { day: DutyDaySummary }) {
         {new Date(day.date).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}
       </Text>
 
-      <View style={styles.bar}>
-        {DUTY_STATUS_ORDER.map(s => {
-          const width = (day.hours[s] / totalHours) * 100;
-          if (width <= 0) return null;
-          return <View key={s} style={{ width: `${width}%`, backgroundColor: DUTY_STATUS_META[s].color }} />;
-        })}
-      </View>
-
-      <View style={[BaseStyle.flexDirectionRow, styles.legend]}>
-        {DUTY_STATUS_ORDER.map(s => (
-          <View key={s} style={[BaseStyle.flexDirectionRow, BaseStyle.alignItemsCenter, styles.legendItem]}>
-            <View style={[styles.legendDot, { backgroundColor: DUTY_STATUS_META[s].color }]} />
-            <Text style={[style.fontSizeSmall, { color: textMuted }]}>
-              {DUTY_STATUS_META[s].label} {day.hours[s]}{LogHistoryText.hoursSuffix}
-            </Text>
+      {totalHours <= 0 ? (
+        <Text style={[style.fontSizeSmall2x, styles.noData, { color: textFaint }]}>{LogHistoryText.noData}</Text>
+      ) : (
+        <>
+          <View style={styles.bar}>
+            {DUTY_STATUS_ORDER.map(s => {
+              const width = (day.hours[s] / totalHours) * 100;
+              if (width <= 0) return null;
+              return <View key={s} style={{ width: `${width}%`, backgroundColor: DUTY_STATUS_META[s].color }} />;
+            })}
           </View>
-        ))}
-      </View>
+
+          <View style={[BaseStyle.flexDirectionRow, styles.legend]}>
+            {DUTY_STATUS_ORDER.map(s => (
+              <View key={s} style={[BaseStyle.flexDirectionRow, BaseStyle.alignItemsCenter, styles.legendItem]}>
+                <View style={[styles.legendDot, { backgroundColor: DUTY_STATUS_META[s].color }]} />
+                <Text style={[style.fontSizeSmall, { color: textMuted }]}>
+                  {DUTY_STATUS_META[s].label} {day.hours[s]}{LogHistoryText.hoursSuffix}
+                </Text>
+              </View>
+            ))}
+          </View>
+        </>
+      )}
     </Card>
   );
 }
 
 export default function LogHistoryScreen() {
+  const { driver } = useAuth();
+  const [history, setHistory] = useState<DutyDaySummary[]>([]);
+
+  useEffect(() => {
+    if (!driver) return;
+    let mounted = true;
+
+    supabase
+      .from('duty_logs')
+      .select('id, status, changed_at')
+      .eq('driver_id', driver.id)
+      .order('changed_at', { ascending: false })
+      .limit(200)
+      .then(({ data }) => {
+        if (mounted) setHistory(buildDutyHistory(data ?? []));
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [driver]);
+
   return (
     <ScreenContainer>
       <ScreenHeader title={LogHistoryText.title} subtitle={LogHistoryText.subtitle} />
       <FlatList
-        data={mockDutyHistory}
+        data={history}
         keyExtractor={item => item.date}
         renderItem={({ item }) => <DayCard day={item} />}
         contentContainerStyle={styles.list}
@@ -61,6 +91,9 @@ const styles = StyleSheet.create({
   },
   card: {
     marginBottom: spacings.normalx,
+  },
+  noData: {
+    marginTop: spacings.normalx,
   },
   bar: {
     flexDirection: 'row',

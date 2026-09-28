@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import ScreenContainer from '../../components/ScreenContainer';
@@ -23,11 +23,11 @@ import {
 import { DUTY_STATUS_META } from '../../constant/DutyStatus';
 import { HomeText } from '../../constant/Constants';
 import { LOAD_STATUS_META } from '../../constant/LoadStatus';
-import { mockNotifications } from '../../mock/notifications';
-import { mockSettlements } from '../../mock/settlements';
+import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
 import { useDutyStatus } from '../../context/DutyStatusContext';
 import { useLoads } from '../../context/LoadsContext';
+import { useNotifications } from '../../context/NotificationsContext';
 import { formatCurrency } from '../../utils/format';
 import type { HomeStackParamList } from '../../navigation/types';
 
@@ -37,13 +37,29 @@ export default function HomeScreen({ navigation }: Props) {
   const { driver } = useAuth();
   const { status } = useDutyStatus();
   const { loads } = useLoads();
-  const unreadCount = mockNotifications.filter(n => !n.is_read).length;
+  const { unreadCount } = useNotifications();
+  const [pendingEarnings, setPendingEarnings] = useState(0);
+
+  useEffect(() => {
+    if (!driver) return;
+    let mounted = true;
+
+    supabase
+      .from('settlements')
+      .select('amount')
+      .eq('driver_id', driver.id)
+      .eq('status', 'unpaid')
+      .then(({ data }) => {
+        if (mounted) setPendingEarnings((data ?? []).reduce((sum, s) => sum + s.amount, 0));
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [driver]);
 
   const activeLoad = loads.find(l => l.status !== 'delivered' && l.status !== 'cancelled');
   const deliveredThisWeek = loads.filter(l => l.status === 'delivered').length;
-  const pendingEarnings = mockSettlements
-    .filter(s => s.status === 'unpaid')
-    .reduce((sum, s) => sum + s.amount, 0);
 
   const firstName = driver?.full_name.split(' ')[0] ?? HomeText.defaultDriverName;
   const dutyMeta = DUTY_STATUS_META[status];
@@ -93,7 +109,7 @@ export default function HomeScreen({ navigation }: Props) {
               <View style={[BaseStyle.flexDirectionRow, BaseStyle.alignItemsCenter]}>
                 <IconCircle name="package-variant-closed" color={accentColor} backgroundColor={accentSoft} size={40} />
                 <Text style={[style.fontSizeNormal2x, style.fontWeightMedium, styles.loadId, { color: textDark }]}>
-                  {activeLoad.id}
+                  {activeLoad.load_number}
                 </Text>
               </View>
               <StatusBadge label={LOAD_STATUS_META[activeLoad.status].label} color={LOAD_STATUS_META[activeLoad.status].color} />

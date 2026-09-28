@@ -12,7 +12,6 @@ import {
   borderStrong,
   dangerColor,
   inputBgColor,
-  inputErrorBg,
   inputFocusBg,
   placeholderColor,
   textDark,
@@ -134,7 +133,6 @@ const styles = StyleSheet.create({
     borderColor: authLinkColor,
   },
   inputRowError: {
-    backgroundColor: inputErrorBg,
     borderColor: dangerColor,
   },
   leftIcon: {

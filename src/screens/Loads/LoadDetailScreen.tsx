@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import ScreenContainer from '../../components/ScreenContainer';
@@ -16,15 +16,17 @@ import { BaseStyle } from '../../constant/Style';
 import { spacings, style } from '../../constant/Fonts';
 import { accentColor, accentSoft, borderColor, cardBgSoft, textDark, textFaint, textMuted } from '../../constant/Color';
 import { LOAD_STATUS_META, NEXT_LOAD_STATUS } from '../../constant/LoadStatus';
-import { mockRoutes } from '../../mock/routes';
-import { mockLoadDocuments } from '../../mock/loadDocuments';
-import { addMockExpense } from '../../mock/expenses';
+import { fetchRoute, syncStopsForLoadStatus } from '../../lib/routeStops';
+import { supabase } from '../../lib/supabase';
+import { submitPodPhoto } from '../../lib/podUpload';
+import { useAuth } from '../../context/AuthContext';
 import { useLoads } from '../../context/LoadsContext';
+import { useDutyGuard } from '../../hooks/useDutyGuard';
 import { formatCurrency, formatDate } from '../../utils/format';
 import { safeOpenURL } from '../../utils/linking';
-import { ExpensesText, LoadDetailText } from '../../constant/Constants';
+import { DutyGuardText, ExpensesText, LoadDetailText } from '../../constant/Constants';
 import type { LoadFlowParamList } from '../../navigation/types';
-import type { Expense, LoadDocumentType } from '../../types';
+import type { Expense, LoadDocument, LoadDocumentType, PodDocument, Route as RouteInfo } from '../../types';
 
 const DOCUMENT_ICON: Record<LoadDocumentType, string> = {
   rate_confirmation: 'file-document-outline',
@@ -46,44 +48,98 @@ function InfoTile({ icon, label, value }: { icon: string; label: string; value: 
 
 export default function LoadDetailScreen({ route, navigation }: Props) {
   const { loadId } = route.params;
+  const { driver } = useAuth();
   const { getLoad, updateLoadStatus } = useLoads();
+  const { requireActiveDuty, blocked, dismissBlocked } = useDutyGuard();
   const [sheetVisible, setSheetVisible] = useState(false);
   const [expenseSheetVisible, setExpenseSheetVisible] = useState(false);
   const [expenseSuccessVisible, setExpenseSuccessVisible] = useState(false);
+  const [documents, setDocuments] = useState<LoadDocument[]>([]);
+  const [podDocuments, setPodDocuments] = useState<PodDocument[]>([]);
+  const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null);
   const load = getLoad(loadId);
-  const routeInfo = mockRoutes[loadId];
-  const documents = mockLoadDocuments[loadId] ?? [];
+
+  useEffect(() => {
+    let mounted = true;
+
+    fetchRoute(loadId).then(result => {
+      if (mounted) setRouteInfo(result);
+    });
+
+    supabase
+      .from('load_documents')
+      .select('id, load_id, type, file_url, uploaded_at')
+      .eq('load_id', loadId)
+      .order('uploaded_at', { ascending: false })
+      .then(({ data }) => {
+        if (mounted) setDocuments(data ?? []);
+      });
+
+    supabase
+      .from('pod_documents')
+      .select('id, load_id, file_url, uploaded_at')
+      .eq('load_id', loadId)
+      .order('uploaded_at', { ascending: false })
+      .then(({ data }) => {
+        if (mounted) setPodDocuments(data ?? []);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [loadId]);
 
   if (!load) return null;
 
   const meta = LOAD_STATUS_META[load.status];
   const next = NEXT_LOAD_STATUS[load.status];
+  const latestPod = podDocuments[0];
 
   function callCustomer() {
     if (load?.customer_contact) safeOpenURL(`tel:${load.customer_contact.replace(/\s/g, '')}`);
   }
 
-  async function confirmStatusChange(podPhotoUri?: string) {
-    if (!next) return;
-    await new Promise<void>(resolve => setTimeout(() => resolve(), 500));
-    updateLoadStatus(loadId, next.status, podPhotoUri);
-    setSheetVisible(false);
+  function handlePrimaryActionPress() {
+    if (!requireActiveDuty()) return;
+    setSheetVisible(true);
   }
 
-  function handleAddExpense(input: Omit<Expense, 'id' | 'created_at' | 'status'>) {
-    const expense: Expense = {
-      id: `EX-${Date.now()}`,
-      created_at: new Date().toISOString(),
-      status: 'pending',
-      ...input,
-    };
-    addMockExpense(expense);
+  function handleAddExpensePress() {
+    if (!requireActiveDuty()) return;
+    setExpenseSheetVisible(true);
+  }
+
+  async function confirmStatusChange(podPhotoUri?: string) {
+    if (!next) return;
+    const changedToStatus = next.status;
+    await updateLoadStatus(loadId, changedToStatus);
+    // Close right away — `next` (and the sheet's actionLabel/requiresPod
+    // props) recompute from load.status as soon as the line above updates
+    // it, so leaving the sheet open through the awaits below would briefly
+    // show the *following* action's confirmation (e.g. "Confirm Delivery"
+    // flashing right after "Start Trip") before it finally closes.
+    setSheetVisible(false);
+    await syncStopsForLoadStatus(loadId, changedToStatus);
+    setRouteInfo(await fetchRoute(loadId));
+    if (podPhotoUri) {
+      const fileUrl = await submitPodPhoto(loadId, podPhotoUri);
+      setPodDocuments(prev => [{ id: `local-${Date.now()}`, load_id: loadId, file_url: fileUrl, uploaded_at: new Date().toISOString() }, ...prev]);
+    }
+  }
+
+  async function handleAddExpense(input: Omit<Expense, 'id' | 'created_at' | 'status'>) {
+    if (!driver) return;
+    const { error } = await supabase
+      .from('expenses')
+      .insert({ category: input.category, amount: input.amount, notes: input.notes, load_id: input.load_id, created_by: driver.id });
+
+    if (error) throw error;
     setExpenseSuccessVisible(true);
   }
 
   return (
     <ScreenContainer scroll style={styles.scrollContent}>
-      <ScreenHeader title={load.id} subtitle={load.customer_name} />
+      <ScreenHeader title={load.load_number} subtitle={load.customer_name} />
 
       <View style={[BaseStyle.flexDirectionRow, BaseStyle.alignItemsCenter, BaseStyle.justifyContentSpaceBetween, styles.statusRow]}>
         <StatusBadge label={meta.label} color={meta.color} />
@@ -131,12 +187,12 @@ export default function LoadDetailScreen({ route, navigation }: Props) {
         </View>
       </Card>
 
-      {load.status === 'delivered' && load.pod_photo_uri && (
+      {load.status === 'delivered' && latestPod && (
         <Card style={styles.section}>
           <Text style={[style.fontSizeNormal2x, style.fontWeightMedium, styles.cardHeaderRow, { color: textDark }]}>
             {LoadDetailText.podTitle}
           </Text>
-          <Image source={{ uri: load.pod_photo_uri }} style={styles.podImage} resizeMode="cover" />
+          <Image source={{ uri: latestPod.file_url }} style={styles.podImage} resizeMode="cover" />
         </Card>
       )}
 
@@ -148,15 +204,23 @@ export default function LoadDetailScreen({ route, navigation }: Props) {
           <Text style={[style.fontSizeSmall2x, { color: textMuted }]}>{LoadDetailText.noDocuments}</Text>
         ) : (
           documents.map(doc => (
-            <View key={doc.id} style={[BaseStyle.flexDirectionRow, BaseStyle.alignItemsCenter, styles.documentRow]}>
-              <IconCircle name={DOCUMENT_ICON[doc.type]} color={accentColor} backgroundColor={accentSoft} size={36} iconSize={17} />
-              <View style={styles.documentText}>
-                <Text style={[style.fontSizeNormal1x, style.fontWeightMedium, { color: textDark }]}>{doc.file_name}</Text>
-                <Text style={[style.fontSizeSmall, { color: textMuted }]}>
-                  {LoadDetailText.documentTypes[doc.type]} · {formatDate(doc.uploaded_at)}
-                </Text>
+            <TouchableOpacity
+              key={doc.id}
+              activeOpacity={0.7}
+              onPress={() => safeOpenURL(doc.file_url)}
+              style={[BaseStyle.flexDirectionRow, BaseStyle.alignItemsCenter, BaseStyle.justifyContentSpaceBetween, styles.documentRow]}
+            >
+              <View style={[BaseStyle.flexDirectionRow, BaseStyle.alignItemsCenter, BaseStyle.flex]}>
+                <IconCircle name={DOCUMENT_ICON[doc.type]} color={accentColor} backgroundColor={accentSoft} size={36} iconSize={17} />
+                <View style={styles.documentText}>
+                  <Text style={[style.fontSizeNormal1x, style.fontWeightMedium, { color: textDark }]}>
+                    {LoadDetailText.documentTypes[doc.type]}
+                  </Text>
+                  <Text style={[style.fontSizeSmall, { color: textMuted }]}>{formatDate(doc.uploaded_at)}</Text>
+                </View>
               </View>
-            </View>
+              <Icon name="open-in-new" size={16} color={textFaint} />
+            </TouchableOpacity>
           ))
         )}
       </Card>
@@ -164,19 +228,19 @@ export default function LoadDetailScreen({ route, navigation }: Props) {
       <CustomButton
         label={LoadDetailText.addExpense}
         variant="outline"
-        onPress={() => setExpenseSheetVisible(true)}
+        onPress={handleAddExpensePress}
         style={styles.section}
       />
 
       {next && (
-        <CustomButton label={next.actionLabel} onPress={() => setSheetVisible(true)} style={styles.primaryAction} />
+        <CustomButton label={next.actionLabel} onPress={handlePrimaryActionPress} style={styles.primaryAction} />
       )}
 
       <StatusUpdateSheet
         visible={sheetVisible}
         onClose={() => setSheetVisible(false)}
         onConfirm={confirmStatusChange}
-        loadId={load.id}
+        loadId={load.load_number}
         actionLabel={next?.actionLabel ?? ''}
         requiresPod={next?.status === 'delivered'}
       />
@@ -186,6 +250,7 @@ export default function LoadDetailScreen({ route, navigation }: Props) {
         onClose={() => setExpenseSheetVisible(false)}
         onSubmit={handleAddExpense}
         loadId={load.id}
+        loadLabel={load.load_number}
       />
 
       <AlertModal
@@ -196,6 +261,16 @@ export default function LoadDetailScreen({ route, navigation }: Props) {
         message={ExpensesText.form.successMessage}
         confirmLabel={ExpensesText.form.doneLabel}
         onConfirm={() => setExpenseSuccessVisible(false)}
+      />
+
+      <AlertModal
+        visible={blocked}
+        onClose={dismissBlocked}
+        tone="error"
+        title={DutyGuardText.title}
+        message={DutyGuardText.message}
+        confirmLabel={DutyGuardText.confirmLabel}
+        onConfirm={dismissBlocked}
       />
     </ScreenContainer>
   );

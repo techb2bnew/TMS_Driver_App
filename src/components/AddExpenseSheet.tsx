@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import BottomSheetModal from './BottomSheetModal';
+import CenterSheetModal from './CenterSheetModal';
 import Chip from './Chip';
 import CustomTextInput from './CustomTextInput';
 import CustomButton from './CustomButton';
@@ -15,11 +15,15 @@ const CATEGORIES: ExpenseCategory[] = ['Fuel', 'Tolls', 'Maintenance', 'Insuranc
 type AddExpenseSheetProps = {
   visible: boolean;
   onClose: () => void;
-  onSubmit: (expense: Omit<Expense, 'id' | 'created_at' | 'status'>) => void;
+  onSubmit: (expense: Omit<Expense, 'id' | 'created_at' | 'status'>) => Promise<void>;
+  // The real load id (FK value) — kept separate from `loadLabel` so the
+  // sheet can show a friendly "LD-1042" title without storing that string
+  // where the database expects a uuid.
   loadId?: string;
+  loadLabel?: string;
 };
 
-export default function AddExpenseSheet({ visible, onClose, onSubmit, loadId }: AddExpenseSheetProps) {
+export default function AddExpenseSheet({ visible, onClose, onSubmit, loadId, loadLabel }: AddExpenseSheetProps) {
   const [category, setCategory] = useState<ExpenseCategory>('Fuel');
   const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
@@ -46,19 +50,27 @@ export default function AddExpenseSheet({ visible, onClose, onSubmit, loadId }: 
     }
     setError('');
     setSubmitting(true);
-    await new Promise<void>(resolve => setTimeout(() => resolve(), 500));
-    setSubmitting(false);
-
-    onSubmit({ category, amount: numericAmount, notes: notes.trim(), load_id: loadId ?? null });
-    reset();
-    onClose();
+    try {
+      await onSubmit({ category, amount: numericAmount, notes: notes.trim(), load_id: loadId ?? null });
+      reset();
+      onClose();
+    } catch (err) {
+      // Surface the real Postgres/RLS error (e.g. a missing column or a
+      // policy rejection) instead of a generic message — much faster to
+      // diagnose than guessing from a silent failure.
+      console.error('Expense submit failed', err);
+      const message = err instanceof Error && err.message ? err.message : ExpensesText.form.submitError;
+      setError(message);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
-    <BottomSheetModal
+    <CenterSheetModal
       visible={visible}
       onClose={handleClose}
-      title={loadId ? `${ExpensesText.form.title} — ${loadId}` : ExpensesText.form.title}
+      title={loadLabel ? `${ExpensesText.form.title} — ${loadLabel}` : ExpensesText.form.title}
     >
       <Text style={[style.fontSizeSmall2x, style.fontWeightThin1x, styles.label, { color: textDark }]}>
         {ExpensesText.form.categoryLabel}
@@ -86,7 +98,7 @@ export default function AddExpenseSheet({ visible, onClose, onSubmit, loadId }: 
       {error ? <Text style={[style.fontSizeSmall, styles.errorText]}>{error}</Text> : null}
 
       <CustomButton label={ExpensesText.form.submit} onPress={handleSubmit} loading={submitting} style={styles.submitButton} />
-    </BottomSheetModal>
+    </CenterSheetModal>
   );
 }
 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import BottomSheetModal from './BottomSheetModal';
+import CenterSheetModal from './CenterSheetModal';
 import CustomTextInput from './CustomTextInput';
 import CustomButton from './CustomButton';
 import Icon from './Icon';
@@ -42,7 +42,7 @@ export default function ForgotPasswordSheet({ visible, onClose }: ForgotPassword
   }
 
   return (
-    <BottomSheetModal visible={visible} onClose={handleClose} title={ForgotPasswordText.title}>
+    <CenterSheetModal visible={visible} onClose={handleClose} title={ForgotPasswordText.title}>
       {sent ? (
         <>
           <View style={BaseStyle.alignJustifyCenter}>
@@ -70,7 +70,7 @@ export default function ForgotPasswordSheet({ visible, onClose }: ForgotPassword
           <CustomButton label={ForgotPasswordText.sendResetLink} onPress={handleSend} loading={submitting} style={styles.actionSpacing} />
         </>
       )}
-    </BottomSheetModal>
+    </CenterSheetModal>
   );
 }
 

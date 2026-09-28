@@ -34,7 +34,7 @@
 		<true/>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<string>TMS Driver shows your current location on the route map so you can see it alongside the pickup and drop-off points.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>TMS Driver uses the camera to capture proof of delivery photos.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

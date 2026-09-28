@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, Linking, PermissionsAndroid, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { launchCamera } from 'react-native-image-picker';
-import BottomSheetModal from './BottomSheetModal';
+import CenterSheetModal from './CenterSheetModal';
 import CustomButton from './CustomButton';
 import Icon from './Icon';
 import { BaseStyle } from '../constant/Style';
@@ -28,11 +28,13 @@ export default function StatusUpdateSheet({
 }: StatusUpdateSheetProps) {
   const [podUri, setPodUri] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState('');
+  const [permissionDenied, setPermissionDenied] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   function reset() {
     setPodUri(null);
     setCameraError('');
+    setPermissionDenied(false);
   }
 
   function handleClose() {
@@ -40,10 +42,41 @@ export default function StatusUpdateSheet({
     onClose();
   }
 
+  // Android needs the CAMERA permission requested explicitly before
+  // launchCamera — without this, a first-run device can silently fail
+  // (or show the system prompt too late) instead of asking properly.
+  async function ensureCameraPermission(): Promise<boolean> {
+    if (Platform.OS !== 'android') return true;
+    const already = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CAMERA);
+    if (already) return true;
+    const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA, {
+      title: StatusUpdateSheetText.cameraPermissionTitle,
+      message: StatusUpdateSheetText.cameraPermissionMessage,
+      buttonPositive: StatusUpdateSheetText.cameraPermissionAllow,
+    });
+    return result === PermissionsAndroid.RESULTS.GRANTED;
+  }
+
   async function handleCapture() {
     setCameraError('');
+    setPermissionDenied(false);
+
+    const hasPermission = await ensureCameraPermission();
+    if (!hasPermission) {
+      setCameraError(StatusUpdateSheetText.cameraPermissionDenied);
+      setPermissionDenied(true);
+      return;
+    }
+
     const result = await launchCamera({ mediaType: 'photo', cameraType: 'back', saveToPhotos: false, quality: 0.7 });
     if (result.didCancel) return;
+
+    if (result.errorCode === 'permission') {
+      setCameraError(StatusUpdateSheetText.cameraPermissionDenied);
+      setPermissionDenied(true);
+      return;
+    }
+
     const uri = result.assets?.[0]?.uri;
     if (result.errorCode || !uri) {
       setCameraError(StatusUpdateSheetText.cameraError);
@@ -63,7 +96,7 @@ export default function StatusUpdateSheet({
   }
 
   return (
-    <BottomSheetModal visible={visible} onClose={handleClose} title={actionLabel}>
+    <CenterSheetModal visible={visible} onClose={handleClose} title={actionLabel}>
       <Text style={[style.fontSizeNormal1x, styles.message]}>
         {requiresPod
           ? StatusUpdateSheetText.addProofOfDeliveryMessage(loadId)
@@ -97,6 +130,13 @@ export default function StatusUpdateSheet({
             </TouchableOpacity>
           )}
           {cameraError ? <Text style={[style.fontSizeSmall, styles.errorText]}>{cameraError}</Text> : null}
+          {permissionDenied && (
+            <TouchableOpacity onPress={() => Linking.openSettings()} style={styles.settingsLink}>
+              <Text style={[style.fontSizeSmall2x, style.fontWeightMedium, { color: accentColor }]}>
+                {StatusUpdateSheetText.openSettings}
+              </Text>
+            </TouchableOpacity>
+          )}
         </>
       )}
 
@@ -111,7 +151,7 @@ export default function StatusUpdateSheet({
           style={BaseStyle.flex}
         />
       </View>
-    </BottomSheetModal>
+    </CenterSheetModal>
   );
 }
 
@@ -175,6 +215,9 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: dangerColor,
+    marginBottom: spacings.small,
+  },
+  settingsLink: {
     marginBottom: spacings.large,
   },
   actions: {

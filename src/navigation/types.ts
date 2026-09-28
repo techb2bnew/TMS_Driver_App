@@ -2,10 +2,14 @@
 // HomeStack and LoadsStack (same screens, reachable from either tab), so
 // their param shapes are declared once here and reused by both.
 
+import type { RouteStop } from '../types';
+
 export type LoadFlowParamList = {
   LoadDetail: { loadId: string };
   RouteMap: { loadId: string };
-  StopDetails: { loadId: string; stopId: string };
+  // The whole stop is passed through (RouteMapScreen already has it in
+  // memory) rather than re-fetched by id — avoids a second round trip.
+  StopDetails: { stop: RouteStop };
 };
 
 export type HomeStackParamList = LoadFlowParamList & {

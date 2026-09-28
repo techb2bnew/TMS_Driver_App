@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { PermissionsAndroid, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import ScreenContainer from '../../components/ScreenContainer';
 import ScreenHeader from '../../components/ScreenHeader';
@@ -8,76 +9,183 @@ import Icon from '../../components/Icon';
 import RouteTimeline from '../../components/RouteTimeline';
 import CustomButton from '../../components/CustomButton';
 import AddStopSheet from '../../components/AddStopSheet';
+import EmptyState from '../../components/EmptyState';
+import AlertModal from '../../components/AlertModal';
 import { BaseStyle } from '../../constant/Style';
 import { spacings, style } from '../../constant/Fonts';
-import { accentColor, accentSoft, borderColor, cardBg, dutyDrivingColor, textDark, textMuted } from '../../constant/Color';
-import { mockRoutes, addMockRouteStop } from '../../mock/routes';
+import { accentColor, accentSoft, borderColor, cardBg, dutyDrivingColor, okColor, textDark, textFaint, textMuted } from '../../constant/Color';
+import { fetchRoute, addRouteStop } from '../../lib/routeStops';
+import { fetchRoadRoute, type RoadRoute } from '../../lib/directions';
 import { useLoads } from '../../context/LoadsContext';
-import { safeOpenURL } from '../../utils/linking';
-import { RouteMapText } from '../../constant/Constants';
+import { useDutyGuard } from '../../hooks/useDutyGuard';
+import { DutyGuardText, RouteMapText } from '../../constant/Constants';
 import type { LoadFlowParamList } from '../../navigation/types';
-import type { RouteStop } from '../../types';
+import type { Route, RouteStop } from '../../types';
 
 type Props = NativeStackScreenProps<LoadFlowParamList, 'RouteMap'>;
 
-function openNavigation(lat: number, lng: number, address: string) {
-  const label = encodeURIComponent(address);
-  const url = Platform.select({
-    ios: `maps:0,0?q=${label}@${lat},${lng}`,
-    android: `geo:0,0?q=${lat},${lng}(${label})`,
-  });
-  if (url) safeOpenURL(url);
-}
+// Wide default view (roughly all of India) for when this load's stops
+// haven't been geocoded yet — the map still shows, centered here until the
+// driver's own location (via showsUserLocation) pulls it into focus.
+const DEFAULT_REGION = { latitude: 22.5, longitude: 79, latitudeDelta: 15, longitudeDelta: 15 };
 
 export default function RouteMapScreen({ route, navigation }: Props) {
   const { loadId } = route.params;
   const { getLoad } = useLoads();
   const load = getLoad(loadId);
-  const routeInfo = mockRoutes[loadId];
+  const { requireActiveDuty, blocked, dismissBlocked } = useDutyGuard();
+  const [routeInfo, setRouteInfo] = useState<Route | null | undefined>(undefined);
+  const [roadRoute, setRoadRoute] = useState<RoadRoute | null>(null);
   const [addStopVisible, setAddStopVisible] = useState(false);
-  const [, forceRefresh] = useState(0);
+  const mapRef = useRef<MapView>(null);
 
-  if (!load || !routeInfo) return null;
-
-  function handleAddStop(input: Omit<RouteStop, 'id' | 'status' | 'distanceFromPrevKm' | 'lat' | 'lng'>) {
-    addMockRouteStop(loadId, {
-      id: `${loadId}-stop-${Date.now()}`,
-      status: 'upcoming',
-      distanceFromPrevKm: 0,
-      lat: 0,
-      lng: 0,
-      ...input,
-    });
-    forceRefresh(v => v + 1);
+  function handleAddStopPress() {
+    if (!requireActiveDuty()) return;
+    setAddStopVisible(true);
   }
 
-  const progressPercent = Math.round(
-    ((routeInfo.totalDistanceKm - routeInfo.remainingDistanceKm) / routeInfo.totalDistanceKm) * 100,
-  );
-  const nextStop = routeInfo.stops.find(s => s.status !== 'completed') ?? routeInfo.stops[routeInfo.stops.length - 1];
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
+    }
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    fetchRoute(loadId).then(result => {
+      if (mounted) setRouteInfo(result);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [loadId]);
+
+  useEffect(() => {
+    const stops = routeInfo?.stops.filter(s => s.lat !== 0 || s.lng !== 0) ?? [];
+    if (stops.length < 2) {
+      setRoadRoute(null);
+      return;
+    }
+    let mounted = true;
+    fetchRoadRoute(stops.map(s => ({ latitude: s.lat, longitude: s.lng }))).then(result => {
+      if (mounted) setRoadRoute(result);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [routeInfo]);
+
+  if (!load) return null;
+
+  async function handleAddStop(input: Omit<RouteStop, 'id' | 'status' | 'distanceFromPrevKm'>) {
+    await addRouteStop(loadId, input);
+    fetchRoute(loadId).then(setRouteInfo);
+  }
+
+  if (routeInfo === undefined) return null;
+
+  if (!routeInfo) {
+    return (
+      <ScreenContainer scroll style={styles.scrollContent}>
+        <ScreenHeader title={RouteMapText.title} subtitle={`${load.load_number} · ${load.pickup_location} → ${load.drop_location}`} />
+        <EmptyState icon="map-marker-off-outline" title={RouteMapText.noRouteTitle} subtitle={RouteMapText.noRouteSubtitle} />
+        <CustomButton
+          label={RouteMapText.viewLoadDetails}
+          variant="outline"
+          onPress={() => navigation.navigate('LoadDetail', { loadId })}
+          style={styles.footerButton}
+        />
+      </ScreenContainer>
+    );
+  }
+
+  const mappableStops = routeInfo.stops.filter(s => s.lat !== 0 || s.lng !== 0);
+
+  // Real road distance from the Directions API when available — the
+  // DB-stored distanceFromPrevKm fields are only ever filled in manually by
+  // dispatch, so they're 0 for the common case (no waypoints).
+  let totalDistanceKm = routeInfo.totalDistanceKm;
+  let remainingDistanceKm = routeInfo.remainingDistanceKm;
+  if (roadRoute) {
+    totalDistanceKm = Math.round(roadRoute.legDistancesKm.reduce((sum, km) => sum + km, 0));
+    remainingDistanceKm = 0;
+    for (let i = 1; i < mappableStops.length; i++) {
+      if (mappableStops[i].status !== 'completed') {
+        remainingDistanceKm += roadRoute.legDistancesKm[i - 1] ?? 0;
+      }
+    }
+    remainingDistanceKm = Math.round(remainingDistanceKm);
+  }
+  const progressPercent = totalDistanceKm > 0 ? Math.round(((totalDistanceKm - remainingDistanceKm) / totalDistanceKm) * 100) : 0;
+
+  function stopPinColor(status: RouteStop['status']) {
+    if (status === 'completed') return okColor;
+    if (status === 'current') return accentColor;
+    return textFaint;
+  }
 
   return (
     <ScreenContainer scroll style={styles.scrollContent}>
-      <ScreenHeader title={RouteMapText.title} subtitle={`${load.id} · ${load.pickup_location} → ${load.drop_location}`} />
+      <ScreenHeader title={RouteMapText.title} subtitle={`${load.load_number} · ${load.pickup_location} → ${load.drop_location}`} />
+
+      <View style={styles.mapWrap}>
+        <MapView
+          ref={mapRef}
+          style={styles.map}
+          provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+          showsUserLocation
+          showsMyLocationButton
+          followsUserLocation={mappableStops.length === 0}
+          initialRegion={
+            mappableStops.length > 0
+              ? { latitude: mappableStops[0].lat, longitude: mappableStops[0].lng, latitudeDelta: 2, longitudeDelta: 2 }
+              : DEFAULT_REGION
+          }
+          onMapReady={() => {
+            if (mappableStops.length > 1) {
+              mapRef.current?.fitToCoordinates(
+                mappableStops.map(s => ({ latitude: s.lat, longitude: s.lng })),
+                { edgePadding: { top: 40, right: 40, bottom: 40, left: 40 }, animated: false },
+              );
+            }
+          }}
+        >
+          {mappableStops.length > 0 && (
+            <>
+              <Polyline
+                coordinates={roadRoute?.path ?? mappableStops.map(s => ({ latitude: s.lat, longitude: s.lng }))}
+                strokeColor={accentColor}
+                strokeWidth={3}
+              />
+              {mappableStops.map(s => (
+                <Marker
+                  key={s.id}
+                  coordinate={{ latitude: s.lat, longitude: s.lng }}
+                  title={s.label}
+                  description={s.address}
+                  pinColor={stopPinColor(s.status)}
+                />
+              ))}
+            </>
+          )}
+        </MapView>
+      </View>
+
+      {mappableStops.length === 0 && (
+        <Text style={[style.fontSizeSmall1x, styles.noRouteNote]}>{RouteMapText.noCoordinatesNote}</Text>
+      )}
 
       <Card style={styles.summaryCard}>
         <View style={[BaseStyle.flexDirectionRow, BaseStyle.justifyContentSpaceBetween]}>
           <View style={BaseStyle.alignItemsFlexStart}>
             <Text style={[style.fontSizeLargeX, style.fontWeightBold, { color: textDark }]}>
-              {routeInfo.remainingDistanceKm} km
+              {remainingDistanceKm} km
             </Text>
             <Text style={[style.fontSizeSmall1x, styles.summaryLabel]}>{RouteMapText.remaining}</Text>
           </View>
           <View style={styles.summaryDivider} />
           <View style={BaseStyle.alignItemsFlexStart}>
-            <Text style={[style.fontSizeLargeX, style.fontWeightBold, { color: textDark }]}>
-              {routeInfo.estimatedDuration}
-            </Text>
-            <Text style={[style.fontSizeSmall1x, styles.summaryLabel]}>{RouteMapText.eta}</Text>
-          </View>
-          <View style={styles.summaryDivider} />
-          <View style={BaseStyle.alignItemsFlexStart}>
-            <Text style={[style.fontSizeLargeX, style.fontWeightBold, { color: textDark }]}>{routeInfo.totalDistanceKm} km</Text>
+            <Text style={[style.fontSizeLargeX, style.fontWeightBold, { color: textDark }]}>{totalDistanceKm} km</Text>
             <Text style={[style.fontSizeSmall1x, styles.summaryLabel]}>{RouteMapText.total}</Text>
           </View>
         </View>
@@ -91,28 +199,16 @@ export default function RouteMapScreen({ route, navigation }: Props) {
         </View>
       </Card>
 
-      <TouchableOpacity
-        activeOpacity={0.85}
-        style={styles.navigateBar}
-        onPress={() => openNavigation(nextStop.lat, nextStop.lng, nextStop.address)}
-      >
-        <Icon name="navigation-variant" size={20} color="#FFFFFF" />
-        <Text style={[style.fontSizeNormal1x, style.fontWeightMedium, styles.navigateBarText]}>
-          {RouteMapText.navigateToPrefix}{nextStop.label}
-        </Text>
-        <Icon name="chevron-right" size={20} color="#FFFFFF" />
-      </TouchableOpacity>
-
       <Card style={styles.stopsCard}>
         <View style={[BaseStyle.flexDirectionRow, BaseStyle.alignItemsCenter, BaseStyle.justifyContentSpaceBetween, styles.stopsTitle]}>
           <Text style={[style.fontSizeNormal2x, style.fontWeightMedium, { color: textDark }]}>{RouteMapText.stops}</Text>
-          <TouchableOpacity onPress={() => setAddStopVisible(true)}>
+          <TouchableOpacity onPress={handleAddStopPress}>
             <Text style={[style.fontSizeSmall1x, style.fontWeightThin1x, { color: accentColor }]}>{RouteMapText.addStop}</Text>
           </TouchableOpacity>
         </View>
         <RouteTimeline
           stops={routeInfo.stops}
-          onStopPress={stop => navigation.navigate('StopDetails', { loadId, stopId: stop.id })}
+          onStopPress={stop => navigation.navigate('StopDetails', { stop })}
         />
       </Card>
 
@@ -123,7 +219,22 @@ export default function RouteMapScreen({ route, navigation }: Props) {
         style={styles.footerButton}
       />
 
-      <AddStopSheet visible={addStopVisible} onClose={() => setAddStopVisible(false)} onSubmit={handleAddStop} />
+      <AddStopSheet
+        visible={addStopVisible}
+        onClose={() => setAddStopVisible(false)}
+        onSubmit={handleAddStop}
+        routeBias={mappableStops.length > 0 ? { latitude: mappableStops[0].lat, longitude: mappableStops[0].lng } : undefined}
+      />
+
+      <AlertModal
+        visible={blocked}
+        onClose={dismissBlocked}
+        tone="error"
+        title={DutyGuardText.title}
+        message={DutyGuardText.message}
+        confirmLabel={DutyGuardText.confirmLabel}
+        onConfirm={dismissBlocked}
+      />
     </ScreenContainer>
   );
 }
@@ -131,6 +242,20 @@ export default function RouteMapScreen({ route, navigation }: Props) {
 const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: spacings.xxLarge,
+  },
+  mapWrap: {
+    height: 220,
+    borderRadius: 14,
+    overflow: 'hidden',
+    marginBottom: spacings.normalx,
+  },
+  map: {
+    flex: 1,
+  },
+  noRouteNote: {
+    color: textMuted,
+    textAlign: 'center',
+    marginBottom: spacings.normalx,
   },
   summaryCard: {
     marginBottom: spacings.normalx,
@@ -161,20 +286,6 @@ const styles = StyleSheet.create({
   progressCaption: {
     color: textMuted,
     marginLeft: spacings.xxsmall,
-  },
-  navigateBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: accentColor,
-    borderRadius: 14,
-    paddingVertical: spacings.normalx,
-    paddingHorizontal: spacings.large,
-    marginBottom: spacings.normalx,
-  },
-  navigateBarText: {
-    color: '#FFFFFF',
-    flex: 1,
-    marginLeft: spacings.normalx,
   },
   stopsCard: {
     marginBottom: spacings.normalx,
