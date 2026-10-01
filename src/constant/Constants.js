@@ -47,6 +47,14 @@ export const ProfileText = {
   doneLabel: 'Done',
 };
 
+export const MessagesText = {
+  title: 'Messages',
+  subtitle: 'Chat with your fleet admin',
+  typePlaceholder: 'Type a message...',
+  noMessages: 'No messages yet — say hello',
+  noAdmin: 'No admin available to message right now',
+};
+
 export const SplashText = {
   subtitle: 'Every load, every mile, in your pocket.',
 };

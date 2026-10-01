@@ -6,6 +6,7 @@ const TAB_ICONS = {
   Home: { active: 'view-dashboard', inactive: 'view-dashboard-outline' },
   Loads: { active: 'package-variant-closed', inactive: 'package-variant-closed' },
   Logs: { active: 'clipboard-text-clock', inactive: 'clipboard-text-clock-outline' },
+  Messages: { active: 'message-text', inactive: 'message-text-outline' },
   Profile: { active: 'account-circle', inactive: 'account-circle-outline' },
 } as const;
 

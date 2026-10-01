@@ -6,6 +6,7 @@ import AuthNavigator from './AuthNavigator';
 import AppNavigator from './AppNavigator';
 import { DutyStatusProvider } from '../context/DutyStatusContext';
 import { LoadsProvider } from '../context/LoadsContext';
+import { MessagesProvider } from '../context/MessagesContext';
 import { NotificationsProvider } from '../context/NotificationsContext';
 import { useAuth } from '../context/AuthContext';
 import { BaseStyle } from '../constant/Style';
@@ -34,11 +35,13 @@ export default function RootNavigator() {
           <Stack.Screen name="App">
             {() => (
               <NotificationsProvider>
-                <LoadsProvider>
-                  <DutyStatusProvider>
-                    <AppNavigator />
-                  </DutyStatusProvider>
-                </LoadsProvider>
+                <MessagesProvider>
+                  <LoadsProvider>
+                    <DutyStatusProvider>
+                      <AppNavigator />
+                    </DutyStatusProvider>
+                  </LoadsProvider>
+                </MessagesProvider>
               </NotificationsProvider>
             )}
           </Stack.Screen>

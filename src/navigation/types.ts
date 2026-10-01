@@ -35,3 +35,7 @@ export type ProfileStackParamList = {
   TermsOfService: undefined;
   ContactSupport: undefined;
 };
+
+export type MessagesStackParamList = {
+  MessagesMain: undefined;
+};
